@@ -92,6 +92,10 @@ with mlflow.start_run(run_name=glm.NAME):
 
 # COMMAND ----------
 
+# Workers can't download from Hugging Face (read-only disk), so fetch the
+# weights once here into the volume and let every worker load from there.
+model_path = chronos.download_model(f"{config.MODELS_PATH}/chronos-bolt-small")
+
 modeled = features.select("zone_id").distinct()
 demand = spark.table(config.TABLES["zone_hour_demand"]).join(modeled, "zone_id")
 
@@ -99,7 +103,7 @@ with mlflow.start_run(run_name=chronos.NAME):
     mlflow.set_tags({"stage": "baseline", "model": chronos.NAME})
     mlflow.log_params({**COMMON_PARAMS, "model_id": chronos.MODEL_ID,
                        "context_hours": chronos.CONTEXT_HOURS, "quantiles": chronos.QUANTILES})
-    preds = chronos.predict(demand, test_start, test_end)
+    preds = chronos.predict(demand, test_start, test_end, model_path)
     # Inner join keeps exactly the rows the other models are scored on.
     write_forecasts(preds.join(test.select("zone_id", "hour_ts", "pickups"), ["zone_id", "hour_ts"]), chronos.NAME)
     log_test_results(chronos.NAME)

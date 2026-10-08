@@ -20,29 +20,33 @@ OUTPUT_SCHEMA = "zone_id INT, hour_ts TIMESTAMP, prediction DOUBLE, p10 DOUBLE, 
 _pipeline = None
 
 
-def _load():
+def download_model(dest: str) -> str:
+    """Download the model weights once, on the driver, into ``dest`` (a UC
+    Volume path). Serverless workers can't write to disk where Hugging Face
+    caches downloads, so they load from this folder instead of the Hub."""
+    import os
+    import tempfile
+
+    if os.path.exists(os.path.join(dest, "config.json")):
+        return dest
+    # Plain HTTP download (no xet), with any scratch files in the temp dir.
+    os.environ["HF_HUB_DISABLE_XET"] = "1"
+    os.environ.setdefault("HF_HOME", os.path.join(tempfile.gettempdir(), "hf_home"))
+    from huggingface_hub import snapshot_download
+
+    snapshot_download(MODEL_ID, local_dir=dest)
+    return dest
+
+
+def _load(model_path: str):
     """Load once per Python worker; applyInPandas calls us once per zone."""
     global _pipeline
     if _pipeline is None:
-        import os
-        import tempfile
-
-        # Serverless workers have a read-only home directory, where Hugging
-        # Face caches downloads by default. Point every HF cache (including
-        # the separate xet download cache) at the writable temp dir. These are
-        # read when huggingface_hub is first imported, so set them before.
-        hf_home = os.path.join(tempfile.gettempdir(), "hf_home")
-        os.environ["HF_HOME"] = hf_home
-        os.environ["HF_HUB_CACHE"] = os.path.join(hf_home, "hub")
-        os.environ["HF_XET_CACHE"] = os.path.join(hf_home, "xet")
-        os.environ["XDG_CACHE_HOME"] = os.path.join(hf_home, "xdg")
-
         import torch
         from chronos import BaseChronosPipeline
 
         _pipeline = BaseChronosPipeline.from_pretrained(
-            MODEL_ID, device_map="cpu", torch_dtype=torch.float32,
-            cache_dir=os.environ["HF_HUB_CACHE"],
+            model_path, device_map="cpu", torch_dtype=torch.float32
         )
     return _pipeline
 
@@ -59,7 +63,7 @@ def rolling_contexts(pickups: np.ndarray, first_target: int, context: int):
     return windows[first_target - context:]
 
 
-def forecast_zone(pdf: pd.DataFrame, test_start: pd.Timestamp) -> pd.DataFrame:
+def forecast_zone(pdf: pd.DataFrame, test_start: pd.Timestamp, model_path: str) -> pd.DataFrame:
     """One zone's hourly panel (history + test window) -> one-step forecasts
     for each hour >= ``test_start``."""
     import torch
@@ -68,7 +72,7 @@ def forecast_zone(pdf: pd.DataFrame, test_start: pd.Timestamp) -> pd.DataFrame:
     first_target = int((pdf["hour_ts"] < test_start).sum())
     contexts = rolling_contexts(pdf["pickups"].to_numpy(dtype=np.float32), first_target, CONTEXT_HOURS)
 
-    pipeline = _load()
+    pipeline = _load(model_path)
     quantiles = []
     for i in range(0, len(contexts), BATCH_SIZE):
         batch = torch.from_numpy(np.ascontiguousarray(contexts[i:i + BATCH_SIZE]))
@@ -88,8 +92,9 @@ def forecast_zone(pdf: pd.DataFrame, test_start: pd.Timestamp) -> pd.DataFrame:
     )
 
 
-def predict(demand, test_start, test_end):
-    """Spark entry point. ``demand`` is the zone x hour panel for modeled zones."""
+def predict(demand, test_start, test_end, model_path):
+    """Spark entry point. ``demand`` is the zone x hour panel for modeled zones;
+    ``model_path`` is a folder from ``download_model`` that workers can read."""
     import sys
 
     from pyspark import cloudpickle
@@ -106,5 +111,5 @@ def predict(demand, test_start, test_end):
     ).select("zone_id", "hour_ts", "pickups")
     ts = pd.Timestamp(test_start)
     return window.groupBy("zone_id").applyInPandas(
-        lambda pdf: forecast_zone(pdf, ts), schema=OUTPUT_SCHEMA
+        lambda pdf: forecast_zone(pdf, ts, model_path), schema=OUTPUT_SCHEMA
     )

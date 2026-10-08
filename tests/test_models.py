@@ -75,7 +75,7 @@ def test_forecast_zone_aligns_targets(monkeypatch):
     pdf = pd.DataFrame({"zone_id": 161, "hour_ts": hours, "pickups": np.arange(10) * 10})
 
     out = chronos.forecast_zone(
-        pdf.sample(frac=1, random_state=0), test_start=hours[6]  # shuffled on purpose
+        pdf.sample(frac=1, random_state=0), test_start=hours[6], model_path="unused"  # shuffled on purpose
     )
     assert out["hour_ts"].tolist() == list(hours[6:])
     # Forecast for hour t is pickups at t-1 under the stand-in.

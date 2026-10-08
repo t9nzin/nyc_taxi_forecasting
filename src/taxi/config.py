@@ -10,6 +10,7 @@ GOLD = f"{CATALOG}.gold"
 ML = f"{CATALOG}.ml"
 RAW_VOLUME = f"{BRONZE}.raw"
 RAW_VOLUME_PATH = f"/Volumes/{CATALOG}/bronze/raw"
+MODELS_PATH = f"{RAW_VOLUME_PATH}/models"  # pretrained weights (Chronos)
 
 TABLES = {
     "bronze_trips": f"{BRONZE}.trips",
