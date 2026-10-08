@@ -1,3 +1,9 @@
 -r requirements.txt
 pyspark==3.5.3
 pytest>=8
+numpy
+pandas
+pyarrow
+matplotlib
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch

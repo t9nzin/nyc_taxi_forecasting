@@ -1,0 +1,6 @@
+# Model-stage dependencies. CPU-only torch keeps installs small on serverless
+# (the default Linux wheel pulls ~2 GB of CUDA libraries we can't use).
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+chronos-forecasting>=2.0
+matplotlib
