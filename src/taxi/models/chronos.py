@@ -24,11 +24,17 @@ def _load():
     """Load once per Python worker; applyInPandas calls us once per zone."""
     global _pipeline
     if _pipeline is None:
+        import os
+        import tempfile
+
         import torch
         from chronos import BaseChronosPipeline
 
+        # Serverless workers have a read-only home directory, where Hugging
+        # Face caches downloads by default; the temp dir is writable.
+        cache_dir = os.path.join(tempfile.gettempdir(), "hf_cache")
         _pipeline = BaseChronosPipeline.from_pretrained(
-            MODEL_ID, device_map="cpu", torch_dtype=torch.float32
+            MODEL_ID, device_map="cpu", torch_dtype=torch.float32, cache_dir=cache_dir
         )
     return _pipeline
 
