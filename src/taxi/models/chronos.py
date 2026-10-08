@@ -27,14 +27,22 @@ def _load():
         import os
         import tempfile
 
+        # Serverless workers have a read-only home directory, where Hugging
+        # Face caches downloads by default. Point every HF cache (including
+        # the separate xet download cache) at the writable temp dir. These are
+        # read when huggingface_hub is first imported, so set them before.
+        hf_home = os.path.join(tempfile.gettempdir(), "hf_home")
+        os.environ["HF_HOME"] = hf_home
+        os.environ["HF_HUB_CACHE"] = os.path.join(hf_home, "hub")
+        os.environ["HF_XET_CACHE"] = os.path.join(hf_home, "xet")
+        os.environ["XDG_CACHE_HOME"] = os.path.join(hf_home, "xdg")
+
         import torch
         from chronos import BaseChronosPipeline
 
-        # Serverless workers have a read-only home directory, where Hugging
-        # Face caches downloads by default; the temp dir is writable.
-        cache_dir = os.path.join(tempfile.gettempdir(), "hf_cache")
         _pipeline = BaseChronosPipeline.from_pretrained(
-            MODEL_ID, device_map="cpu", torch_dtype=torch.float32, cache_dir=cache_dir
+            MODEL_ID, device_map="cpu", torch_dtype=torch.float32,
+            cache_dir=os.environ["HF_HUB_CACHE"],
         )
     return _pipeline
 
