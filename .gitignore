@@ -8,3 +8,7 @@ derby.log
 data/
 *.parquet
 .DS_Store
+
+# Local MLflow runs
+mlruns/
+mlflow.db

@@ -7,3 +7,5 @@ pyarrow
 matplotlib
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
+neuralforecast>=3.0
+mlflow

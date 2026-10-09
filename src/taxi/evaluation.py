@@ -86,3 +86,29 @@ def plot_zone(scored: DataFrame, zone_id: int, title: str, days: int = 7):
     fig.tight_layout()
     return fig
 
+
+def interval_coverage(scored: DataFrame) -> float:
+    """Share of actuals inside [p10, p90]; about 0.8 if the band is calibrated."""
+    inside = (F.col("pickups") >= F.col("p10")) & (F.col("pickups") <= F.col("p90"))
+    return float(scored.agg(F.avg(inside.cast("double"))).first()[0])
+
+
+def log_test_results(spark, model_name: str, example_zone: int = 161):
+    """Read a model's saved test forecasts back from the forecasts table and
+    log test metrics (plus interval coverage, if it has p10/p90) and a plot
+    of ``example_zone`` (default Midtown Center) to the active MLflow run."""
+    import mlflow
+
+    zones = spark.table(config.TABLES["zones"]).select("zone_id", "borough", "zone_name")
+    scored = (
+        spark.table(config.TABLES["forecasts"]).filter(F.col("model") == model_name).join(zones, "zone_id")
+    )
+    mlflow.log_metrics(metrics_for_mlflow(scored, "test"))
+    if scored.filter(F.col("p10").isNotNull()).limit(1).count():
+        mlflow.log_metric("test_coverage_p10_p90", interval_coverage(scored))
+    name = scored.filter(F.col("zone_id") == example_zone).select("zone_name").first()[0]
+    mlflow.log_figure(
+        plot_zone(scored, example_zone, f"{model_name}: {name}, first week of test"),
+        f"forecast_zone_{example_zone}.png",
+    )
+    return scored

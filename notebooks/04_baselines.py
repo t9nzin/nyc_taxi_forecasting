@@ -19,17 +19,14 @@
 # COMMAND ----------
 
 import mlflow
-from pyspark.sql import functions as F
 
-from taxi import evaluation
-from taxi.evaluation import metrics_for_mlflow, plot_zone, split, write_forecasts
+from taxi.evaluation import log_test_results, metrics_for_mlflow, split, write_forecasts
 from taxi.models import chronos, glm, naive
 
 mlflow.set_registry_uri("databricks-uc")
 mlflow.set_experiment(config.MLFLOW_EXPERIMENT)
 
 features = spark.table(config.TABLES["features"])
-zones = spark.table(config.TABLES["zones"]).select("zone_id", "borough")
 validation, test = split(features, "validation"), split(features, "test")
 test_start, test_end = config.splits()["test"]
 
@@ -39,22 +36,6 @@ COMMON_PARAMS = {
     "test_window": f"{test_start}→{test_end}",
     "n_zones": features.select("zone_id").distinct().count(),
 }
-EXAMPLE_ZONE = 161  # Midtown Center
-
-
-def log_test_results(model_name: str):
-    """Read this model's saved test forecasts back, log metrics and a plot."""
-    scored = (
-        spark.table(config.TABLES["forecasts"])
-        .filter(F.col("model") == model_name)
-        .join(zones, "zone_id")
-    )
-    mlflow.log_metrics(metrics_for_mlflow(scored, "test"))
-    mlflow.log_figure(
-        plot_zone(scored, EXAMPLE_ZONE, f"{model_name}: Midtown Center, first week of test"),
-        "forecast_midtown.png",
-    )
-    return scored
 
 # COMMAND ----------
 
@@ -67,7 +48,7 @@ with mlflow.start_run(run_name=naive.NAME):
     mlflow.log_params({**COMMON_PARAMS, "rule": "pickups(t - 168h)"})
     mlflow.log_metrics(metrics_for_mlflow(naive.predict(validation), "validation"))
     write_forecasts(naive.predict(test), naive.NAME)
-    log_test_results(naive.NAME)
+    log_test_results(spark, naive.NAME)
 
 # COMMAND ----------
 
@@ -83,7 +64,7 @@ with mlflow.start_run(run_name=glm.NAME):
     model = glm.fit(split(features, "train"))
     mlflow.log_metrics(metrics_for_mlflow(glm.predict(model, validation), "validation"))
     write_forecasts(glm.predict(model, test), glm.NAME)
-    log_test_results(glm.NAME)
+    log_test_results(spark, glm.NAME)
 
 # COMMAND ----------
 
@@ -106,7 +87,7 @@ with mlflow.start_run(run_name=chronos.NAME):
     preds = chronos.predict(demand, test_start, test_end, model_path)
     # Inner join keeps exactly the rows the other models are scored on.
     write_forecasts(preds.join(test.select("zone_id", "hour_ts", "pickups"), ["zone_id", "hour_ts"]), chronos.NAME)
-    log_test_results(chronos.NAME)
+    log_test_results(spark, chronos.NAME)
 
 # COMMAND ----------
 
