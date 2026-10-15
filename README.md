@@ -59,14 +59,14 @@ Interim, on the DEV slice (train Jan 8 – Feb 29 2024, test Mar 16–31 2024, 2
 | model | inputs | test WAPE |
 |---|---|---:|
 | Chronos-Bolt (zero-shot, never trained on this data) | pickup history | 15.5% |
-| N-HiTS | pickup history | 16.8% |
+| N-HiTS (@champion) | pickup history | 16.7% |
 | Poisson GLM (Spark MLlib) | zone × hour-of-week, weather, holidays, lags | 19.1% |
 | seasonal-naive (same hour last week) | — | 21.6% |
-| Temporal Fusion Transformer | history + calendar, weather, borough | 23.1% |
+| Temporal Fusion Transformer | history + calendar, weather, borough | 23.0% |
 
 ## Neural models: what mattered
 - **Per-window scaling breaks sparse inputs.** neuralforecast normalises each input inside every training window, so `is_holiday` in a holiday-free week, or rain in a dry week, becomes ~10⁶ when it fires. Pickups and weather are instead scaled with fixed train-split statistics that are saved with the model (`taxi.models.neural`).
-- **With seven weeks of training data, extra inputs hurt.** Weather is the same for every zone and different every hour, so the models used it to memorise dates: N-HiTS went from 16.8% (history only) to 19.0% with calendar inputs and 22.4% with weather too. N-HiTS is therefore the main model, and the TFT is kept for its variable-importance readout.
+- **With seven weeks of training data, extra inputs hurt.** Weather is the same for every zone and different every hour, so the models used it to memorise dates: N-HiTS went from 16.8% (history only, local run) to 19.0% with calendar inputs and 22.4% with weather too. N-HiTS is therefore the main model, and the TFT is kept for its variable-importance readout.
 
 ## Running it
 

@@ -34,7 +34,7 @@ START_DATE = date(2022, 1, 1)
 END_DATE = date(2025, 1, 1)  # exclusive
 
 # Develop on a small slice first to save Free Edition compute quota.
-DEV_MODE = True
+DEV_MODE = False
 DEV_START_DATE = date(2024, 1, 1)
 DEV_END_DATE = date(2024, 4, 1)  # exclusive
 
