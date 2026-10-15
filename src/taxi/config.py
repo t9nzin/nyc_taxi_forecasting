@@ -21,7 +21,8 @@ TABLES = {
     "trips": f"{SILVER}.trips",
     "zone_hour_demand": f"{SILVER}.zone_hour_demand",
     "features": f"{GOLD}.features",
-    "forecasts": f"{GOLD}.forecasts",
+    "forecasts": f"{GOLD}.forecasts",  # test-window backtests, every model
+    "next_hour": f"{GOLD}.next_hour_forecasts",  # @champion, the hour after the data ends
 }
 
 MODEL_NAME = f"{ML}.demand_forecaster"

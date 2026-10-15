@@ -1,0 +1,57 @@
+# End-to-end pipeline as one Databricks Job: ingest -> clean -> features ->
+# baselines -> neural models -> @champion scoring. Notebooks run from the
+# GitHub repo's main branch on serverless compute.
+#
+# Create it: Jobs & Pipelines -> Create -> Job -> (kebab menu) Edit as YAML,
+# paste this file, Save. Or, with the Databricks CLI, put it under
+# `resources:` in a bundle and `databricks bundle deploy`.
+#
+# 00_setup is a one-time step and isn't part of the job. The schedule starts
+# paused: TLC publishes trip data monthly, so a monthly run is enough, and
+# the Free Edition compute quota is small.
+resources:
+  jobs:
+    nyc_taxi_pipeline:
+      name: nyc_taxi_pipeline
+      git_source:
+        git_url: https://github.com/t9nzin/nyc_taxi_forecasting
+        git_provider: gitHub
+        git_branch: main
+      schedule:
+        quartz_cron_expression: "0 0 6 5 * ?"  # 06:00 on the 5th of each month
+        timezone_id: America/New_York
+        pause_status: PAUSED
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: ingest
+          notebook_task:
+            notebook_path: notebooks/01_ingest
+            source: GIT
+        - task_key: clean
+          depends_on: [{task_key: ingest}]
+          notebook_task:
+            notebook_path: notebooks/02_clean
+            source: GIT
+        - task_key: features
+          depends_on: [{task_key: clean}]
+          notebook_task:
+            notebook_path: notebooks/03_aggregate_features
+            source: GIT
+        - task_key: baselines
+          depends_on: [{task_key: features}]
+          notebook_task:
+            notebook_path: notebooks/04_baselines
+            source: GIT
+        - task_key: train_neural
+          # After baselines, not alongside: both write gold.forecasts, and on a
+          # first run they would race to create it.
+          depends_on: [{task_key: baselines}]
+          timeout_seconds: 10800
+          notebook_task:
+            notebook_path: notebooks/05_train_neural
+            source: GIT
+        - task_key: score
+          depends_on: [{task_key: train_neural}]
+          notebook_task:
+            notebook_path: notebooks/06_score
+            source: GIT

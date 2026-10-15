@@ -2,7 +2,7 @@
 
 Forecasting next-hour taxi pickups for every NYC taxi zone, built on **Databricks + PySpark + MLflow**, comparing a zero-shot foundation model (Chronos-Bolt) with trained neural forecasters (**N-HiTS**, **Temporal Fusion Transformer**), plus an interactive forecast map.
 
-> Status: data pipeline, baselines and neural models done and tested (DEV slice). Batch scoring, the map and the full 2022–2024 run are in progress.
+> Status: data pipeline, baselines, neural models, batch scoring and the Databricks Job done and tested (DEV slice). The map and the full 2022–2024 run are in progress.
 
 ## Architecture
 
@@ -19,8 +19,13 @@ silver.zone_hour_demand
 gold.features             modeling table
         ▼
 seasonal-naive │ Spark MLlib Poisson GLM │ Chronos-Bolt (zero-shot) │ N-HiTS │ TFT
-        ▼  MLflow tracking → UC Model Registry @champion → spark_udf batch scoring
-gold.forecasts → interactive 3D zone map (Databricks App)
+        ▼  MLflow tracking → UC Model Registry @champion
+gold.forecasts            test-window backtests, every model
+gold.next_hour_forecasts  @champion batch-scored per zone with applyInPandas
+        ▼
+interactive 3D zone map (Databricks App)
+
+All of it runs as one Databricks Job (jobs/pipeline.yml).
 ```
 
 ## Data
@@ -73,7 +78,9 @@ Interim, on the DEV slice (train Jan 8 – Feb 29 2024, test Mar 16–31 2024, 2
    - `01_ingest` → `02_clean` → `03_aggregate_features`.
    - `04_baselines`: seasonal-naive, Poisson GLM and Chronos-Bolt, each an MLflow run.
    - `05_train_neural`: N-HiTS and TFT; the better one is registered in Unity Catalog as `nyc_taxi.ml.demand_forecaster` (`@champion` if it beats the current one).
+   - `06_score`: loads `@champion`, checks it reproduces its backtest, and forecasts the next hour for every zone into `gold.next_hour_forecasts`.
 4. `config.DEV_MODE = True` (the default) runs on Jan–Mar 2024 only. Set it to `False` for the full 2022–2024 run.
+5. To run 01–06 as one pipeline, create a Job from `jobs/pipeline.yml`: **Jobs & Pipelines → Create → Job → Edit as YAML**, then paste it in. It pulls the notebooks from GitHub, and its monthly schedule starts paused.
 
 ### Locally (tests + one-month smoke run)
 Needs Java 17.
@@ -85,9 +92,10 @@ uv venv --python 3.11 .venv && uv pip install --python .venv/bin/python -r requi
 
 ## Repo layout
 ```
-src/taxi/      importable pipeline logic (config, ingest, cleaning, aggregate, features, evaluation)
+src/taxi/      importable pipeline logic (config, ingest, cleaning, aggregate, features, evaluation, scoring)
   models/      naive, glm (Spark MLlib), chronos (applyInPandas), neural (N-HiTS / TFT + MLflow pyfunc)
 notebooks/     thin Databricks notebooks that call src/taxi
+jobs/          Databricks Job definition for the whole pipeline
 tests/         pytest suite on a local SparkSession
 scripts/       local smoke run
 ```
