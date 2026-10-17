@@ -1,0 +1,6 @@
+streamlit==1.66.0
+pydeck==0.9.3
+altair==6.3.0
+pandas==3.0.6
+pyarrow==25.0.1
+numpy==2.4.6

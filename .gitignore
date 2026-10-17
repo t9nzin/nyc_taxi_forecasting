@@ -5,8 +5,9 @@ __pycache__/
 spark-warehouse/
 metastore_db/
 derby.log
-data/
+/data/
 *.parquet
+!app/data/*.parquet
 .DS_Store
 
 # Local MLflow runs

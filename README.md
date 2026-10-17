@@ -2,7 +2,7 @@
 
 Forecasting next-hour taxi pickups for every NYC taxi zone, built on **Databricks + PySpark + MLflow**, comparing a zero-shot foundation model (Chronos-Bolt) with trained neural forecasters (**N-HiTS**, **Temporal Fusion Transformer**), plus an interactive forecast map.
 
-> Status: full 2022–2024 pipeline runs end to end as a Databricks Job. The interactive map is in progress.
+> Status: full 2022–2024 pipeline runs end to end as a Databricks Job; forecasts are explorable on an interactive 3D map.
 
 ## Architecture
 
@@ -23,7 +23,7 @@ seasonal-naive │ Spark MLlib Poisson GLM │ Chronos-Bolt (zero-shot) │ N-Hi
 gold.forecasts            test-window backtests, every model
 gold.next_hour_forecasts  @champion batch-scored per zone with applyInPandas
         ▼
-interactive 3D zone map (Databricks App)
+interactive 3D map (Streamlit + pydeck)
 
 All of it runs as one Databricks Job (jobs/pipeline.yml).
 ```
@@ -88,6 +88,15 @@ On the DEV slice (train Jan–Feb 2024, test Mar 16–31), the TFT scored 23.0% 
 4. `config.DEV_MODE = True` (the default) runs on Jan–Mar 2024 only. Set it to `False` for the full 2022–2024 run.
 5. To run 01–06 as one pipeline, create a Job from `jobs/pipeline.yml`: **Jobs & Pipelines → Create → Job → Edit as YAML**, then paste it in. It pulls the notebooks from GitHub, and its monthly schedule starts paused.
 
+### Interactive map
+A Streamlit + pydeck app (`app/`) showing every model's test-window forecasts. Each modeled zone gets a 3D column whose height is the forecast for the chosen hour, coloured by demand or by forecast error. You can step through hours or play a whole day, switch models, and click a zone to see its forecast against actual pickups with the p10–p90 band.
+
+1. Run `notebooks/07_export_app_data` in Databricks. It writes `forecasts.parquet` to the volume (`/Volumes/nyc_taxi/bronze/raw/app/`).
+2. Download that file into `app/data/forecasts.parquet`.
+3. Run locally with `streamlit run app/app.py`, or deploy on [Streamlit Community Cloud](https://share.streamlit.io) with `app/app.py` as the entry point.
+
+Zone shapes (`app/data/zones.geojson`) come from the TLC shapefile via `scripts/build_zone_geojson.py`.
+
 ### Locally (tests + one-month smoke run)
 Needs Java 17.
 ```bash
@@ -102,6 +111,7 @@ src/taxi/      importable pipeline logic (config, ingest, cleaning, aggregate, f
   models/      naive, glm (Spark MLlib), chronos (applyInPandas), neural (N-HiTS / TFT + MLflow pyfunc)
 notebooks/     thin Databricks notebooks that call src/taxi
 jobs/          Databricks Job definition for the whole pipeline
+app/           Streamlit + pydeck forecast map
 tests/         pytest suite on a local SparkSession
 scripts/       local smoke run
 ```
