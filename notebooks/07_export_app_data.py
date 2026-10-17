@@ -25,6 +25,7 @@ forecasts = spark.table(config.TABLES["forecasts"]).select(
     *[F.round(c, 1).cast("float").alias(c) for c in ("prediction", "p10", "p90")],
 )
 pdf = forecasts.toPandas()
+pdf.attrs.clear()  # Spark Connect puts query metrics here, which Parquet metadata can't hold
 pdf["model"] = pdf["model"].astype("category")
 pdf.sort_values(["model", "hour_ts", "zone_id"]).to_parquet(path, index=False, compression="zstd")
 
