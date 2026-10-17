@@ -1,4 +1,4 @@
-# NYC Taxi Demand Forecasting: hourly forecasts for every taxi zone on Databricks
+# NYC Taxi Demand Forecasting: hourly forecasts for every taxi zone in NYC
 
 ![Python](https://img.shields.io/badge/python-3.11-blue)
 ![Databricks](https://img.shields.io/badge/Databricks-serverless-FF3621)
