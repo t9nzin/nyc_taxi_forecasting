@@ -1,14 +1,6 @@
 # End-to-end pipeline as one Databricks Job: ingest -> clean -> features ->
 # baselines -> neural models -> @champion scoring. Notebooks run from the
 # GitHub repo's main branch on serverless compute.
-#
-# Create it: Jobs & Pipelines -> Create -> Job -> (kebab menu) Edit as YAML,
-# paste this file, Save. Or, with the Databricks CLI, put it under
-# `resources:` in a bundle and `databricks bundle deploy`.
-#
-# 00_setup is a one-time step and isn't part of the job. The schedule starts
-# paused: TLC publishes trip data monthly, so a monthly run is enough, and
-# the Free Edition compute quota is small.
 resources:
   jobs:
     nyc_taxi_pipeline:

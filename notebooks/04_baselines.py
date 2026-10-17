@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # 04 · Baselines
-# MAGIC Three baselines the TFT has to beat, each logged as an MLflow run and scored on the same out-of-time test window:
+# MAGIC Three baselines for the neural models, each logged as an MLflow run and scored on the same out-of-time test window:
 # MAGIC 1. **Seasonal-naive**: same hour last week
 # MAGIC 2. **Poisson GLM** (Spark MLlib): zone and hour-of-week effects, weather, holidays, log lags
 # MAGIC 3. **Chronos-Bolt** (zero-shot): a pretrained time-series model that only sees each zone's history

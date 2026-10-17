@@ -33,7 +33,7 @@ TAXI_TYPES = ["yellow", "green"]
 START_DATE = date(2022, 1, 1)
 END_DATE = date(2025, 1, 1)  # exclusive
 
-# Develop on a small slice first to save Free Edition compute quota.
+# Jan–Mar 2024 slice for development runs (Free Edition compute quota is small).
 DEV_MODE = False
 DEV_START_DATE = date(2024, 1, 1)
 DEV_END_DATE = date(2024, 4, 1)  # exclusive

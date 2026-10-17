@@ -51,7 +51,7 @@ def _drop_reason() -> Column:
 
 def clean_trips(bronze: DataFrame):
     """Return (clean_trips, drop_counts). ``drop_counts`` has one row per reason
-    plus a ``kept`` row, which makes a good README table."""
+    plus a ``kept`` row."""
     flagged = bronze.withColumn("drop_reason", _drop_reason())
     counts = flagged.groupBy(F.coalesce("drop_reason", F.lit("kept")).alias("reason")).count()
     clean = (

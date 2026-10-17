@@ -21,7 +21,7 @@ def champion(spark, tmp_path_factory):
 
     import taxi
 
-    # Round-trip through Spark so dtypes match what notebook 05 sees (and the signature enforces).
+    # Round-trip through Spark so dtypes match gold.features (the signature enforces them).
     pdf = spark.createDataFrame(_features(hours=24 * 12)).toPandas()
     params = {**neural.SPECS["nhits"]["params"], "input_size": INPUT_SIZE, "max_steps": 5,
               "val_check_steps": 5, "batch_size": 2, "windows_batch_size": 64, "accelerator": "cpu"}

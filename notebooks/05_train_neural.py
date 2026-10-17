@@ -124,7 +124,7 @@ results = {"nhits": train_and_log("nhits")}
 # COMMAND ----------
 
 # MAGIC %md ## TFT
-# MAGIC Much slower on CPU: about 25 min on the DEV slice, and many hours on the full three years. It runs on DEV only by default; its DEV result and variable importances stay in MLflow. Set `TRAIN_TFT = True` to train it on the full data anyway.
+# MAGIC Much slower on CPU (about 25 min on the DEV slice, hours on the full three years), so it trains in DEV mode only. Its DEV results and variable importances are in MLflow.
 
 # COMMAND ----------
 
@@ -134,7 +134,7 @@ if TRAIN_TFT:
     display(pd.concat(neural.feature_importances(results["tft"]["forecaster"])).rename("weight")
             .reset_index().rename(columns={"level_0": "input_type", "level_1": "input"}))
 elif spark.catalog.tableExists(config.TABLES["forecasts"]):
-    # Don't leave TFT rows from an earlier run (a different test window) next to this run's models.
+    # TFT rows from a DEV run cover a different test window.
     spark.sql(f"DELETE FROM {config.TABLES['forecasts']} WHERE model = 'tft'")
 
 # COMMAND ----------

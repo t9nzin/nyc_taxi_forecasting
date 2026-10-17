@@ -81,7 +81,6 @@ print("Midtown Center (161), MLK Day evening:")
     .show(24)
 )
 
-# Seasonal-naive sanity number for the README.
 naive = gold.withColumn("prediction", F.col("lag_168h").cast("double"))
 from taxi.evaluation import overall_metrics  # noqa: E402
 

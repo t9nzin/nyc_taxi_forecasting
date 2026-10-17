@@ -2,7 +2,6 @@
 # MAGIC %md
 # MAGIC # 00 · Setup
 # MAGIC Creates the Unity Catalog catalog, the bronze/silver/gold/ml schemas, the raw-file volume and the MLflow experiment.
-# MAGIC Run once per workspace.
 
 # COMMAND ----------
 

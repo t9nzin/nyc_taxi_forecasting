@@ -55,7 +55,9 @@ _TRAINING = {
     "max_steps": 1000,
     "val_check_steps": 100,
     "early_stop_patience_steps": 3,  # validation checks without improvement
-    "batch_size": 64,  # zones per step
+    # Zones per step. Each step copies every training window of these zones
+    # (zones x hours x input_size x columns), so this bounds memory.
+    "batch_size": 16,
     "windows_batch_size": 256,
     "random_seed": 42,
 }
@@ -135,6 +137,12 @@ def to_long(pdf: pd.DataFrame, scales: dict):
     return df, static_df
 
 
+def _model_inputs(df: pd.DataFrame, static_df: pd.DataFrame, futr_exog, stat_exog):
+    """Only the columns a model uses. neuralforecast windows every temporal
+    column it's given, used or not."""
+    return df[["unique_id", "ds", "y", *futr_exog]], (static_df if stat_exog else None)
+
+
 def build(kind: str, params: dict = None):
     """An unfitted NeuralForecast around one model from ``SPECS``."""
     from neuralforecast import NeuralForecast
@@ -209,10 +217,11 @@ class Forecaster:
         null (its calendar and weather columns filled). The model scores that hour.
         """
         is_future = pdf["pickups"].isna()
-        history, static_df = to_long(pdf[~is_future], self.scales)
+        futr_exog, stat_exog = list(self.model.futr_exog_list), list(self.model.stat_exog_list)
+        history, static_df = _model_inputs(*to_long(pdf[~is_future], self.scales), futr_exog, stat_exog)
         futr_df = None
-        if self.model.futr_exog_list:
-            futr_df = to_long(pdf[is_future].assign(pickups=0.0), self.scales)[0].drop(columns="y")
+        if futr_exog:
+            futr_df = to_long(pdf[is_future].assign(pickups=0.0), self.scales)[0][["unique_id", "ds", *futr_exog]]
         fc = self.nf.predict(df=history, static_df=static_df, futr_df=futr_df)
         return _to_output(fc, self.scales)
 
@@ -228,7 +237,8 @@ def backtest(pdf: pd.DataFrame, val_start, test_start, test_end, kind: str, para
     val_start, test_start, test_end = (pd.Timestamp(t) for t in (val_start, test_start, test_end))
     pdf = pdf[pd.to_datetime(pdf["hour_ts"]) < test_end]
     scales = fit_scales(pdf, val_start)
-    df, static_df = to_long(pdf, scales)
+    spec = SPECS[kind]
+    df, static_df = _model_inputs(*to_long(pdf, scales), spec["futr_exog"], spec["stat_exog"])
     hours = df["ds"].drop_duplicates().sort_values()
     val_size = int(((hours >= val_start) & (hours < test_start)).sum())
     test_size = int((hours >= test_start).sum())
