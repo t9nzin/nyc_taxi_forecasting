@@ -2,7 +2,7 @@
 
 Forecasting next-hour taxi pickups for every NYC taxi zone, built on **Databricks + PySpark + MLflow**, comparing a zero-shot foundation model (Chronos-Bolt) with trained neural forecasters (**N-HiTS**, **Temporal Fusion Transformer**), plus an interactive forecast map.
 
-> Status: data pipeline, baselines, neural models, batch scoring and the Databricks Job done and tested (DEV slice). The map and the full 2022–2024 run are in progress.
+> Status: full 2022–2024 pipeline runs end to end as a Databricks Job. The interactive map is in progress.
 
 ## Architecture
 
@@ -54,15 +54,21 @@ All of it runs as one Databricks Job (jobs/pipeline.yml).
 Out-of-time splits: train 2022–2023, validate 2024 H1, test 2024 H2. Metrics are MAE, RMSE and **WAPE**. WAPE stays defined when many zone-hours have zero pickups, which MAPE does not.
 
 ## Results
-Interim, on the DEV slice (train Jan 8 – Feb 29 2024, test Mar 16–31 2024, 222 zones). Full 2022–2024 results to follow.
+Test window Jul 1 – Dec 31 2024 (4,416 hours × 218 zones = 962,688 forecasts per model), each hour forecast one step ahead. Models trained on 2022–2023, early-stopped on 2024 H1.
 
-| model | inputs | test WAPE |
-|---|---|---:|
-| Chronos-Bolt (zero-shot, never trained on this data) | pickup history | 15.5% |
-| N-HiTS (@champion) | pickup history | 16.7% |
-| Poisson GLM (Spark MLlib) | zone × hour-of-week, weather, holidays, lags | 19.1% |
-| seasonal-naive (same hour last week) | — | 21.6% |
-| Temporal Fusion Transformer | history + calendar, weather, borough | 23.0% |
+| model | inputs | WAPE | MAE | RMSE | p10–p90 coverage | vs naive |
+|---|---|---:|---:|---:|---:|---:|
+| Chronos-Bolt (zero-shot, never trained on this data) | pickup history | **15.5%** | 3.24 | 9.45 | 82.7% | −42% |
+| N-HiTS (`@champion`) | pickup history | 17.4% | 3.65 | 10.80 | 79.7% | −35% |
+| Poisson GLM (Spark MLlib) | zone × hour-of-week, weather, holidays, lags | 18.4% | 3.85 | 11.27 | — | −31% |
+| seasonal-naive (same hour last week) | — | 26.8% | 5.62 | 18.84 | — | — |
+
+- **A pretrained model beat every model trained on this data.** Chronos-Bolt has never seen NYC taxi data, yet it is the most accurate model, with well-calibrated 80% bands.
+- **N-HiTS's bands are calibrated:** 79.7% of actuals fall inside its nominal 80% interval.
+- **Seasonal-naive is much worse on H2 2024** than on the DEV slice (26.8% vs 21.6%). The test window has more holidays (July 4, Labor Day, Thanksgiving, Christmas), and each one breaks "same hour last week".
+- `@champion` is chosen among the trained, registered models. Chronos is evaluated as a baseline and isn't registered.
+
+On the DEV slice (train Jan–Feb 2024, test Mar 16–31), the TFT scored 23.0% WAPE against N-HiTS's 16.7%. It is skipped on the full run, where it would take hours on CPU.
 
 ## Neural models: what mattered
 - **Per-window scaling breaks sparse inputs.** neuralforecast normalises each input inside every training window, so `is_holiday` in a holiday-free week, or rain in a dry week, becomes ~10⁶ when it fires. Pickups and weather are instead scaled with fixed train-split statistics that are saved with the model (`taxi.models.neural`).
