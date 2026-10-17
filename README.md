@@ -1,117 +1,175 @@
-# NYC Taxi Demand Forecasting
+# NYC Taxi Demand Forecasting: hourly forecasts for every taxi zone on Databricks
 
-Forecasting next-hour taxi pickups for every NYC taxi zone, built on **Databricks + PySpark + MLflow**, comparing a zero-shot foundation model (Chronos-Bolt) with trained neural forecasters (**N-HiTS**, **Temporal Fusion Transformer**), plus an interactive forecast map.
+![Python](https://img.shields.io/badge/python-3.11-blue)
+![Databricks](https://img.shields.io/badge/Databricks-serverless-FF3621)
+![PySpark](https://img.shields.io/badge/PySpark-Delta%20Lake-E25A1C)
+![MLflow](https://img.shields.io/badge/MLflow-Unity%20Catalog%20registry-0194E2)
+![Tests](https://img.shields.io/badge/tests-24%20passing-brightgreen)
+[![Streamlit](https://img.shields.io/badge/demo-Streamlit-FF4B4B)](https://nyc-taxi-forecasting.streamlit.app/)
 
-> Status: full 2022–2024 pipeline runs end to end as a Databricks Job; forecasts are explorable on an interactive 3D map.
+**Forecasts next-hour taxi pickups for 218 NYC taxi zones.** It covers every yellow and green taxi trip from 2022–2024, plus hourly NOAA weather, in a medallion pipeline on Databricks. Over a six-month out-of-time test (962,688 zone-hours per model), a zero-shot **Chronos-Bolt** foundation model scores **15.5% WAPE**, which is **42% lower error than a seasonal-naive baseline**. It beats N-HiTS and a Spark MLlib Poisson GLM trained on two years of this data. Its forecasts come with calibrated 80% prediction intervals. The whole pipeline runs as one Databricks Job, and the forecasts can be explored on an interactive 3D map.
+
+**[▶ Live demo](https://nyc-taxi-forecasting.streamlit.app/)**: scrub through any hour of July–December 2024, switch models, and click a zone to see its forecast against what actually happened.
+
+![Interactive 3D forecast map](docs/figures/app.png)
+
+---
+
+## Contents
+
+1. [Project overview](#project-overview)
+2. [Architecture](#architecture)
+3. [Key findings](#key-findings)
+4. [Results](#results)
+5. [Quickstart](#quickstart)
+6. [Interactive map](#interactive-map)
+
+---
+
+## Project overview
+
+**The problem.** Dispatchers and fleet operators need to know where demand will be in the next hour, so they can send cars there before the riders are waiting. A useful forecast also needs a range ("between 180 and 260 pickups"), not just one number, because the cost of being short differs from the cost of being over.
+
+**The data.**
+- **Trips:** [NYC TLC trip records](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page), yellow and green taxis, January 2022 – December 2024: 144 monthly Parquet files, aggregated to pickups per zone per hour.
+- **Weather:** NOAA hourly weather for Central Park.
+- **Holidays:** US federal and New York State holidays.
+
+**What this project does**, from raw files to a deployed map:
+
+| Stage | What happens | Tools |
+|---|---|---|
+| Ingest | Each monthly file is read separately and mapped onto one schema, because TLC column types and names change between months. Weather is downloaded one month at a time and checked to be complete. | PySpark, Delta Lake, Unity Catalog volumes |
+| Clean | 5 rules: bad distance, bad fare, impossible duration, unknown zone, pickup outside the file's month. Each dropped trip is tagged with the first rule it fails (January 2024: 3.9% dropped). | PySpark |
+| Aggregate | Pickups per zone per hour on a gap-free grid, with weather moved onto NYC wall-clock time across daylight-saving changes | PySpark |
+| Features | Lags (1, 2, 24, 168 h), rolling means, calendar, holidays and weather, all computed from hours before the forecast hour | PySpark window functions |
+| Model | Seasonal-naive, Poisson GLM, zero-shot Chronos-Bolt, N-HiTS and a Temporal Fusion Transformer, all scored on the same test rows | Spark MLlib, Chronos, neuralforecast |
+| Track and register | Every model is an MLflow run. The best trained model is registered in Unity Catalog as `@champion`. | MLflow, Unity Catalog |
+| Score | `@champion` forecasts the next hour for every zone, one zone per Spark task. The run fails if the registered model doesn't reproduce its own backtest. | `applyInPandas` |
+| Orchestrate | One Databricks Job runs notebooks 01 → 06 from this repo on serverless compute | Databricks Jobs |
+| Visualize | 3D map of forecasts vs actuals, with a zone drill-down | Streamlit, pydeck, Altair |
+
+**Roles this project demonstrates:**
+- data science: time-series evaluation, baselines, foundation-model benchmarking, prediction intervals, error analysis;
+- ML engineering: MLflow, the model registry, batch inference, memory profiling;
+- data engineering: medallion architecture, schema drift, Spark, orchestration.
+
+---
 
 ## Architecture
 
-```
-TLC trip Parquet + zone lookup + NOAA hourly weather + holidays
-        │  download into a Unity Catalog volume
-        ▼
-bronze.trips              schema-normalized raw trips (Delta)
-        ▼  PySpark cleaning
-silver.trips              outliers removed
-        ▼  aggregate + gap-free zone × hour grid
-silver.zone_hour_demand
-        ▼  weather + holiday joins, window-function lags/rolling
-gold.features             modeling table
-        ▼
-seasonal-naive │ Spark MLlib Poisson GLM │ Chronos-Bolt (zero-shot) │ N-HiTS │ TFT
-        ▼  MLflow tracking → UC Model Registry @champion
-gold.forecasts            test-window backtests, every model
-gold.next_hour_forecasts  @champion batch-scored per zone with applyInPandas
-        ▼
-interactive 3D map (Streamlit + pydeck)
-
-All of it runs as one Databricks Job (jobs/pipeline.yml).
+```mermaid
+flowchart LR
+    TLC[TLC trip Parquet<br/>yellow + green, 2022–2024] --> V[(UC volume<br/>raw files)]
+    NOAA[NOAA hourly weather] --> V
+    V --> B[(bronze<br/>schema-normalised Delta)]
+    B --> S[(silver<br/>clean trips, hourly weather,<br/>zone × hour demand)]
+    S --> G[(gold.features<br/>218 zones × 26k hours)]
+    G --> BL["Baselines<br/>seasonal-naive, Poisson GLM (MLlib),<br/>Chronos-Bolt zero-shot"]
+    G --> NN[N-HiTS / TFT<br/>neuralforecast]
+    BL --> FC[(gold.forecasts<br/>test window, every model)]
+    NN --> FC
+    NN --> R[(UC model registry<br/>@champion)]
+    R --> SC[Batch scoring<br/>applyInPandas] --> NH[(gold.next_hour_forecasts)]
+    FC --> X[Parquet export] --> APP[Streamlit + pydeck<br/>3D map]
+    MLF[MLflow tracking] -.- BL
+    MLF -.- NN
+    J[Databricks Job] -. runs 01 → 06 .-> V
 ```
 
-## Data
-- **Trips:** [NYC TLC Trip Record Data](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page), yellow + green, 2022–2024.
-- **Weather:** NOAA NCEI Local Climatological Data, Central Park station.
-- **Holidays:** US federal + New York State, from the `holidays` package.
+All the logic lives in `src/taxi/` as plain Python modules. The notebooks are thin wrappers, so the cleaning rules, features, metrics, models and scoring are unit-tested locally on a Spark session. Notebooks reach Databricks through a Git folder, and the Job runs them straight from GitHub `main`. Everything runs on Databricks Free Edition serverless compute.
 
-## Pipeline details worth knowing
-- **Schema drift:** TLC column types and names change between months (e.g. `payment_type` int vs double, `airport_fee` → `Airport_fee` in 2024). Each monthly file is read separately and mapped onto one canonical schema (`taxi.ingest.normalize_trips`).
-- **Cleaning:** each dropped trip is tagged with the first rule it fails, so the drop table adds up exactly. January 2024 sample:
+---
 
-  | reason | trips |
-  |---|---:|
-  | kept | 2,902,052 |
-  | bad_distance (≤ 0 or > 100 mi) | 37,926 |
-  | impossible_duration (< 1 min or > 4 h) | 37,018 |
-  | bad_fare (negative or > $1,000) | 32,000 |
-  | unknown_pickup_zone | 12,159 |
-  | pickup_outside_file_month | 20 |
+## Key findings
 
-- **Time zones:** TLC timestamps are NYC wall-clock time, but NOAA reports use Local Standard Time all year. Weather is shifted onto wall-clock time, so DST lines up.
-- **No leakage:** an hour's weather is the last report *before* that hour starts. Lags and rolling windows end at t−1. The set of modeled zones is chosen on the training window only.
-- **NOAA quirk:** long API responses get cut off mid-stream, so weather is downloaded one month at a time. Each file is checked to reach the end of its month before it is kept.
+- **A pretrained model beat every model trained on this data.** Chronos-Bolt has never seen NYC taxi data. Given only each zone's last 512 hours, it scores 15.5% WAPE, against 17.4% for N-HiTS trained on two years of these zones. For one-hour-ahead forecasts, recent history carries most of the signal, and a model pretrained on many time series uses it well.
+- **Holidays break "same hour last week".** Seasonal-naive's error jumps from **25% to 66%** on holidays, and is still **41%** the week after, when "last week" was the holiday. Chronos handles it best: **22%** on holidays and **14%** the week after.
+- **Extra inputs made the neural models worse.** On a 7-week development slice, adding calendar and weather inputs took N-HiTS from 16.8% to 19.0% and then 22.4% WAPE, and the TFT (23.0%) lost to history-only N-HiTS (16.7%). Two causes:
+  - neuralforecast's per-window scaling turned rare flags like `is_holiday` into values around 10⁶ whenever they fired. That is fixed with train-split scaling saved with the model.
+  - Weather, which is identical across zones, let the models memorise dates.
+- **Training ran out of memory at full scale, and the fix didn't need a bigger machine.** neuralforecast copies every training window of a batch at once. With 64 zones, two years of hours and 14 input columns, that is about 10 GB, and the Free Edition kernel has 15.6 GB. Passing each model only the columns it uses (14 → 2 for N-HiTS) and 16 zones per step made it fit.
+- **The neural models slightly under-forecast total demand** (Chronos −2.4%, N-HiTS −3.6%). That fits forecasting the median of right-skewed counts. The Poisson GLM, which models the mean, is within 0.2%.
 
-## Validation
-Out-of-time splits: train 2022–2023, validate 2024 H1, test 2024 H2. Metrics are MAE, RMSE and **WAPE**. WAPE stays defined when many zone-hours have zero pickups, which MAPE does not.
+---
 
 ## Results
-Test window Jul 1 – Dec 31 2024 (4,416 hours × 218 zones = 962,688 forecasts per model), each hour forecast one step ahead. Models trained on 2022–2023, early-stopped on 2024 H1.
 
-| model | inputs | WAPE | MAE | RMSE | p10–p90 coverage | vs naive |
+Test window: July 1 – December 31, 2024, which no model saw during training or early stopping. That's 4,416 hours × 218 zones = **962,688 forecasts per model, on identical rows**. Each hour is forecast one step ahead from the hours before it. The trained models learn from 2022–2023 and early-stop on 2024 H1.
+
+| Model | Inputs | WAPE | MAE | RMSE | p10–p90 coverage | vs naive |
 |---|---|---:|---:|---:|---:|---:|
-| Chronos-Bolt (zero-shot, never trained on this data) | pickup history | **15.5%** | 3.24 | 9.45 | 82.7% | −42% |
+| **Chronos-Bolt** (zero-shot) | pickup history | **15.5%** | **3.24** | **9.45** | 82.7% | **−42%** |
 | N-HiTS (`@champion`) | pickup history | 17.4% | 3.65 | 10.80 | 79.7% | −35% |
 | Poisson GLM (Spark MLlib) | zone × hour-of-week, weather, holidays, lags | 18.4% | 3.85 | 11.27 | — | −31% |
-| seasonal-naive (same hour last week) | — | 26.8% | 5.62 | 18.84 | — | — |
+| Seasonal-naive (same hour last week) | — | 26.8% | 5.62 | 18.84 | — | — |
 
-- **A pretrained model beat every model trained on this data.** Chronos-Bolt has never seen NYC taxi data, yet it is the most accurate model, with well-calibrated 80% bands.
-- **N-HiTS's bands are calibrated:** 79.7% of actuals fall inside its nominal 80% interval.
-- **Seasonal-naive is much worse on H2 2024** than on the DEV slice (26.8% vs 21.6%). The test window has more holidays (July 4, Labor Day, Thanksgiving, Christmas), and each one breaks "same hour last week".
-- `@champion` is chosen among the trained, registered models. Chronos is evaluated as a baseline and isn't registered.
+The metric is WAPE (total absolute error ÷ total pickups) rather than MAPE, because many zone-hours have zero pickups, where MAPE is undefined. N-HiTS's nominal 80% interval covers 79.7% of actual values. `@champion` is chosen among the trained, registered models; Chronos is evaluated as a baseline. The TFT runs on the development slice only (23.0% WAPE), because at full scale it would take many hours on CPU.
 
-On the DEV slice (train Jan–Feb 2024, test Mar 16–31), the TFT scored 23.0% WAPE against N-HiTS's 16.7%. It is skipped on the full run, where it would take hours on CPU.
+### Where the models are accurate, and where they aren't
 
-## Neural models: what mattered
-- **Per-window scaling breaks sparse inputs.** neuralforecast normalises each input inside every training window, so `is_holiday` in a holiday-free week, or rain in a dry week, becomes ~10⁶ when it fires. Pickups and weather are instead scaled with fixed train-split statistics that are saved with the model (`taxi.models.neural`).
-- **With seven weeks of training data, extra inputs hurt.** Weather is the same for every zone and different every hour, so the models used it to memorise dates: N-HiTS went from 16.8% (history only, local run) to 19.0% with calendar inputs and 22.4% with weather too. N-HiTS is therefore the main model, and the TFT is kept for its variable-importance readout.
+| Zones, by average demand | Share of pickups | Chronos-Bolt | N-HiTS | Poisson GLM | Seasonal-naive |
+|---|---:|---:|---:|---:|---:|
+| Busiest 20 | 62% | 12.3% | 14.2% | 14.8% | 22.7% |
+| Next 40 | 35% | 16.1% | 18.0% | 18.5% | 27.6% |
+| Next 60 | 3% | 55.7% | 59.6% | 63.3% | 79.8% |
+| Quietest 98 | 0.7% | 95.9% | 97.9% | 135.6% | 133.9% |
 
-## Running it
+Error is low where it matters most: the 60 busiest zones carry 96% of all pickups. In quiet zones, a few pickups an hour are close to random. There the Poisson GLM does worse than naive, because its log link amplifies the lag features of near-empty zones.
 
-### Databricks (Free Edition)
-1. Sign up at [databricks.com/learn/free-edition](https://www.databricks.com/learn/free-edition).
-2. In the workspace, go to **Workspace → Create → Git folder** and paste this repo's GitHub URL.
-3. Run the notebooks in order on serverless compute:
-   - `notebooks/00_setup` creates the catalog, schemas, volume and MLflow experiment. If creating a catalog isn't allowed, set `CATALOG = "workspace"` in `src/taxi/config.py`.
-   - `01_ingest` → `02_clean` → `03_aggregate_features`.
-   - `04_baselines`: seasonal-naive, Poisson GLM and Chronos-Bolt, each an MLflow run.
-   - `05_train_neural`: N-HiTS and TFT; the better one is registered in Unity Catalog as `nyc_taxi.ml.demand_forecaster` (`@champion` if it beats the current one).
-   - `06_score`: loads `@champion`, checks it reproduces its backtest, and forecasts the next hour for every zone into `gold.next_hour_forecasts`.
-4. `config.DEV_MODE = True` (the default) runs on Jan–Mar 2024 only. Set it to `False` for the full 2022–2024 run.
-5. To run 01–06 as one pipeline, create a Job from `jobs/pipeline.yml`: **Jobs & Pipelines → Create → Job → Edit as YAML**, then paste it in. It pulls the notebooks from GitHub, and its monthly schedule starts paused.
+| Error by hour of day | Holidays |
+|---|---|
+| ![WAPE by hour](docs/figures/wape_by_hour.png) | ![Holiday effect](docs/figures/holiday_effect.png) |
+| Afternoons are easiest (~12%). The 4–5 a.m. lull is hardest, because tiny counts make relative error large. | Every model has more error on holidays, but naive breaks down twice: on the day and again a week later. |
 
-### Interactive map
-A Streamlit + pydeck app (`app/`) showing every model's test-window forecasts. Each modeled zone gets a 3D column whose height is the forecast for the chosen hour, coloured by demand or by forecast error. You can step through hours or play a whole day, switch models, and click a zone to see its forecast against actual pickups with the p10–p90 band.
+![Midtown Center, Thanksgiving week](docs/figures/thanksgiving_midtown.png)
 
-1. Run `notebooks/07_export_app_data` in Databricks. It writes `forecasts.parquet` to the volume (`/Volumes/nyc_taxi/bronze/raw/app/`).
-2. Download that file into `app/data/forecasts.parquet`.
-3. Run locally with `streamlit run app/app.py`, or deploy on [Streamlit Community Cloud](https://share.streamlit.io) with `app/app.py` as the entry point.
+*Midtown Center over Thanksgiving week. Seasonal-naive repeats the previous Thursday's rush hour. Chronos-Bolt picks up the quiet holiday from the hours just before it.*
 
-Zone shapes (`app/data/zones.geojson`) come from the TLC shapefile via `scripts/build_zone_geojson.py`.
+---
 
-### Locally (tests + one-month smoke run)
-Needs Java 17.
+## Quickstart
+
+**On Databricks** (the [Free Edition](https://www.databricks.com/learn/free-edition) is enough):
+
+1. Go to **Workspace → Create → Git folder** and paste this repo's URL.
+2. Run `notebooks/00_setup` once. It creates the `nyc_taxi` catalog, the bronze/silver/gold/ml schemas, the volume and the MLflow experiment.
+3. Create a Job from [`jobs/pipeline.yml`](jobs/pipeline.yml) (**Jobs & Pipelines → Create → Job → Edit as YAML**) and run it. It runs ingest → clean → features → baselines → neural models → scoring, which takes about 3 hours on serverless compute.
+
+`config.DEV_MODE = True` in `src/taxi/config.py` limits everything to January–March 2024, for quick iterations.
+
+**Locally** (needs Java 17 for Spark):
+
 ```bash
 uv venv --python 3.11 .venv && uv pip install --python .venv/bin/python -r requirements-dev.txt
-.venv/bin/python -m pytest
-.venv/bin/python scripts/local_smoke.py   # downloads Jan 2024 into ./data and runs the whole pipeline
+.venv/bin/python -m pytest                   # 24 tests on a local Spark session
+.venv/bin/python scripts/local_smoke.py      # the data pipeline on one real month, without Databricks
 ```
 
-## Repo layout
-```
-src/taxi/      importable pipeline logic (config, ingest, cleaning, aggregate, features, evaluation, scoring)
-  models/      naive, glm (Spark MLlib), chronos (applyInPandas), neural (N-HiTS / TFT + MLflow pyfunc)
-notebooks/     thin Databricks notebooks that call src/taxi
-jobs/          Databricks Job definition for the whole pipeline
-app/           Streamlit + pydeck forecast map
-tests/         pytest suite on a local SparkSession
-scripts/       local smoke run
+The tests cover:
+- each cleaning rule, schema drift, and DST handling in the weather join;
+- the gap-free demand grid, and lags that never look ahead;
+- metrics, and train-only scaling;
+- neural backtests, including save → load → predict giving the same forecasts;
+- Spark batch scoring with a saved MLflow model reproducing its backtest.
+
+---
+
+## Interactive map
+
+**Live:** https://nyc-taxi-forecasting.streamlit.app/
+
+| Control | What it does |
+|---|---|
+| Model | Chronos-Bolt, N-HiTS, Poisson GLM or seasonal-naive. The headline numbers update to that model's test WAPE and coverage. |
+| Day and hour | Any hour of the test window. **Play this day** steps through all 24 hours. |
+| Colour by | Demand, or forecast error (blue = under-forecast, red = over-forecast) |
+| Click a zone | A week of actual vs forecast pickups for that zone with the p10–p90 band, and each model's WAPE there |
+
+Column height is the forecast for the selected hour. Columns sit on zone centres rather than extruding whole zones, so a large zone like JFK doesn't look busy just because it's large.
+
+The app reads a Parquet export of `gold.forecasts`: 3.85M rows, 11 MB. Notebook [`07_export_app_data`](notebooks/07_export_app_data.py) writes it. The zone shapes come from the TLC shapefile via [`scripts/build_zone_geojson.py`](scripts/build_zone_geojson.py).
+
+```bash
+streamlit run app/app.py
 ```

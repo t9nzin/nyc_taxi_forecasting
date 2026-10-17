@@ -22,7 +22,12 @@ forecasts = spark.table(config.TABLES["forecasts"]).select(
     F.col("zone_id").cast("smallint").alias("zone_id"),
     "hour_ts",
     F.col("pickups").cast("smallint").alias("pickups"),
-    *[F.round(c, 1).cast("float").alias(c) for c in ("prediction", "p10", "p90")],
+    F.round("prediction", 1).cast("float").alias("prediction"),
+    # p10 rounded up and p90 down to 0.1. Pickups are whole numbers, so whether
+    # one falls inside the band doesn't change; plain rounding would turn p10 = 0.04
+    # into 0.0 and count zero-pickup hours as inside.
+    (F.ceil(F.col("p10") * 10) / 10).cast("float").alias("p10"),
+    (F.floor(F.col("p90") * 10) / 10).cast("float").alias("p90"),
 )
 pdf = forecasts.toPandas()
 pdf.attrs.clear()  # Spark Connect puts query metrics here, which Parquet metadata can't hold
