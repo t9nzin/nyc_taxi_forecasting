@@ -7,11 +7,11 @@
 ![Tests](https://img.shields.io/badge/tests-24%20passing-brightgreen)
 [![Streamlit](https://img.shields.io/badge/demo-Streamlit-FF4B4B)](https://nyc-taxi-forecasting.streamlit.app/)
 
-**Forecasts next-hour taxi pickups for 218 NYC taxi zones.** It covers every yellow and green taxi trip from 2022–2024, plus hourly NOAA weather, in a medallion pipeline on Databricks. Over a six-month out-of-time test (962,688 zone-hours per model), a zero-shot **Chronos-Bolt** foundation model scores **15.5% WAPE**, which is **42% lower error than a seasonal-naive baseline**. It beats N-HiTS and a Spark MLlib Poisson GLM trained on two years of this data. Its forecasts come with calibrated 80% prediction intervals. The whole pipeline runs as one Databricks Job, and the forecasts can be explored on an interactive 3D map.
+**Forecasts next-hour taxi pickups for 218 NYC taxi zones.** It covers every yellow and green taxi trip from 2022–2024, plus hourly NOAA weather, in a medallion pipeline on Databricks. Over a six-month out-of-time test (962,688 zone-hours per model), a zero-shot **Chronos-Bolt** foundation model scores **15.5% WAPE**, which is **42% lower error than a seasonal-naive baseline**. It beats N-HiTS and a Spark MLlib Poisson GLM trained on two years of this data. Its forecasts come with calibrated 80% prediction intervals. The whole pipeline runs as one Databricks Job, and the forecasts can be explored on an interactive dashboard.
 
 **[▶ Live demo](https://nyc-taxi-forecasting.streamlit.app/)**: scrub through any hour of July–December 2024, switch models, and click a zone to see its forecast against what actually happened.
 
-![Interactive 3D forecast map](docs/figures/app.png)
+![Forecast dashboard](docs/figures/app.png)
 
 ---
 
@@ -64,7 +64,7 @@ flowchart LR
     NN --> FC
     NN --> R[(UC model registry<br/>@champion)]
     R --> SC[Batch scoring<br/>applyInPandas] --> NH[(gold.next_hour_forecasts)]
-    FC --> X[Parquet export] --> APP[Streamlit + pydeck<br/>3D map]
+    FC --> X[Parquet export] --> APP[Streamlit + pydeck<br/>dashboard]
     MLF[MLflow tracking] -.- BL
     MLF -.- NN
     J[Databricks Job] -. runs 01 → 06 .-> V
@@ -152,16 +152,17 @@ The tests cover:
 
 **Live:** https://nyc-taxi-forecasting.streamlit.app/
 
-| Control | What it does |
+| Part | What it shows |
 |---|---|
-| Model | Chronos-Bolt, N-HiTS, Poisson GLM or seasonal-naive. The headline numbers update to that model's test WAPE and coverage. |
-| Day and hour | Any hour of the test window. **Play this day** steps through all 24 hours. |
-| Colour by | Demand, or forecast error (blue = under-forecast, red = over-forecast) |
-| Click a zone | A week of actual vs forecast pickups for that zone with the p10–p90 band, and each model's WAPE there |
+| Model tabs | Chronos-Bolt, N-HiTS, Poisson GLM or seasonal-naive. Every card switches to that model. |
+| Map | A pin per zone on a street map. The selected zone's pin opens into a card with its forecast and actual pickups. **Show by Error** rings each pin blue (under-forecast) or orange (over-forecast). Click a pin, or search for a zone, to select it. |
+| Forecast accuracy | The model's test WAPE as a gauge, with interval coverage, MAE, the change vs seasonal-naive, and the city-wide error this hour |
+| Pickups by borough | Actual pickups this hour in each borough, and its share |
+| Selected zone | Actual vs forecast this hour with the 80% range, plus a week of hourly pickups (bars) against the forecast (line) |
+| Busiest zones | The top zones this hour: actual vs forecast, 80% range, error, and whether the actual fell inside the range. Filter by borough. |
+| ▶, calendar and clock | Play the day hour by hour, or jump to any day and hour from July to December 2024 |
 
-Column height is the forecast for the selected hour. Columns sit on zone centres rather than extruding whole zones, so a large zone like JFK doesn't look busy just because it's large.
-
-The app reads a Parquet export of `gold.forecasts`: 3.85M rows, 11 MB. Notebook [`07_export_app_data`](notebooks/07_export_app_data.py) writes it. The zone shapes come from the TLC shapefile via [`scripts/build_zone_geojson.py`](scripts/build_zone_geojson.py).
+The app reads a Parquet export of `gold.forecasts` (3.85M rows, 11 MB), written by notebook [`07_export_app_data`](notebooks/07_export_app_data.py). Zone names and centres come from the TLC shapefile via [`scripts/build_zone_geojson.py`](scripts/build_zone_geojson.py). The basemap is a custom style ([`app/static/map_style.json`](app/static/map_style.json)) on [OpenFreeMap](https://openfreemap.org/) vector tiles.
 
 ```bash
 streamlit run app/app.py
