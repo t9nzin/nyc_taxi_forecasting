@@ -35,8 +35,6 @@
 - **Weather:** NOAA hourly weather for Central Park.
 - **Holidays:** US federal and New York State holidays.
 
-**What this project does**, from raw files to a deployed map:
-
 | Stage | What happens | Tools |
 |---|---|---|
 | Ingest | Each monthly file is read separately and mapped onto one schema, because TLC column types and names change between months. Weather is downloaded one month at a time and checked to be complete. | PySpark, Delta Lake, Unity Catalog volumes |
@@ -47,12 +45,7 @@
 | Track and register | Every model is an MLflow run. The best trained model is registered in Unity Catalog as `@champion`. | MLflow, Unity Catalog |
 | Score | `@champion` forecasts the next hour for every zone, one zone per Spark task. The run fails if the registered model doesn't reproduce its own backtest. | `applyInPandas` |
 | Orchestrate | One Databricks Job runs notebooks 01 → 06 from this repo on serverless compute | Databricks Jobs |
-| Visualize | 3D map of forecasts vs actuals, with a zone drill-down | Streamlit, pydeck, Altair |
-
-**Roles this project demonstrates:**
-- data science: time-series evaluation, baselines, foundation-model benchmarking, prediction intervals, error analysis;
-- ML engineering: MLflow, the model registry, batch inference, memory profiling;
-- data engineering: medallion architecture, schema drift, Spark, orchestration.
+| Visualize | Interactive map of forecasts vs actuals, with a zone drill-down | Streamlit, pydeck |
 
 ---
 
