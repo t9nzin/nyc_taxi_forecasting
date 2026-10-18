@@ -84,10 +84,15 @@ PIN = {"url": _pin_url(), "width": 72, "height": 84, "anchorY": 84}
 
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 html, body, .stApp, .stApp * { font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; }
 .stApp { background: #0b0b0b; color: #f5f5f4; }
 header[data-testid="stHeader"], [data-testid="stToolbar"], #MainMenu, footer { display: none !important; }
+/* Space Grotesk for headings, nav and big numbers; Inter for small text */
+.tx-brand, .tx-title, .tx-center b, .tx-id, .tx-profile b, .tx-pill, .tx-row > span:nth-child(2), .tx-two b,
+.st-key-nav_model button p, .st-key-filter_pick button p {
+  font-family: "Space Grotesk", Inter, system-ui, sans-serif !important; letter-spacing: -0.01em;
+}
 .block-container { padding: 1rem 1.25rem 2rem; max-width: 1520px; }
 
 div[class*="st-key-card"] {
@@ -114,8 +119,6 @@ div[class*="st-key-card"] {
 
 /* nav */
 .tx-brand { display: flex; align-items: center; gap: 10px; font-size: 26px; font-weight: 600; letter-spacing: -0.03em; color: #fff; white-space: nowrap; }
-.tx-brand-mark { width: 30px; height: 30px; border-radius: 8px; background: #fff; display: flex; align-items: flex-end; justify-content: center; gap: 2px; padding: 6px 5px; }
-.tx-brand-mark span { width: 4px; border-radius: 1px; background: #0b0b0b; }
 .st-key-nav_model button { background: transparent !important; border: 0 !important; color: #8d8d88 !important;
   padding: 6px 14px !important; box-shadow: none !important; }
 .st-key-nav_model button p { font-size: 15px !important; color: #8d8d88 !important; }
@@ -424,8 +427,7 @@ st.html(CSS)
 
 with st.container(key="nav"):
     brand, tabs, right = st.columns([1.25, 3.2, 2.1], vertical_alignment="center")
-    brand.html("<div class='tx-brand'><div class='tx-brand-mark'><span style='height:40%'></span><span style='height:70%'></span>"
-               "<span style='height:100%'></span></div>NYC Taxi.</div>")
+    brand.html("<div class='tx-brand'>NYC Taxi</div>")
     with tabs:
         model = st.segmented_control("Model", list(MODELS), format_func=MODELS.get, default="chronos_bolt",
                                      key="nav_model", label_visibility="collapsed") or "chronos_bolt"
